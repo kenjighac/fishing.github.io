@@ -1,1 +1,686 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>Papercraft Fishing</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Space+Mono:ital,wght@0,400;0,700;1,400&display=swap');
 
+        :root {
+            /* Light Paper (Surface) */
+            --bg-r: 253; --bg-g: 251; --bg-b: 247;
+            /* Dark Ink (Deep) */
+            --dark-r: 15; --dark-g: 20; --dark-b: 30;
+            
+            --ink: #1a1a1a;
+            --green-ink: #32a852;
+            --red-ink: #e63946;
+        }
+
+        /* The body acts as a native scroll area for Stage 1 */
+        body {
+            font-family: 'Space Mono', monospace;
+            margin: 0;
+            padding: 0;
+            /* Default to light paper */
+            background-color: rgb(var(--bg-r), var(--bg-g), var(--bg-b));
+            color: var(--ink);
+            /* Hide scrollbar for clean UI but keep scroll functionality */
+            scrollbar-width: none; 
+            -ms-overflow-style: none;
+            touch-action: pan-y; /* Allow vertical touch scrolling natively */
+        }
+        body::-webkit-scrollbar {
+            display: none;
+        }
+        
+        /* Lock scrolling when not in Stage 1 */
+        body.no-scroll {
+            overflow: hidden;
+            touch-action: none;
+        }
+
+        /* Fixed container for all UI to stay on screen regardless of scroll */
+        #app-container {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100vw;
+            height: 100vh;
+            pointer-events: none; /* Let scroll events pass through to body */
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+        }
+
+        /* Enable pointer events only for interactive elements */
+        .interactive {
+            pointer-events: auto;
+        }
+
+        /* --- UI Components --- */
+        .paper-btn {
+            background: #fff;
+            color: #1a1a1a;
+            border: 2px solid currentColor;
+            box-shadow: 4px 4px 0px currentColor;
+            transition: all 0.1s ease;
+            cursor: pointer;
+            font-weight: bold;
+        }
+        .paper-btn:active {
+            transform: translate(2px, 2px);
+            box-shadow: 2px 2px 0px currentColor;
+        }
+
+        .paper-panel {
+            background: #fff;
+            color: #1a1a1a;
+            border: 2px solid #1a1a1a;
+            box-shadow: 6px 6px 0px rgba(0,0,0,0.1);
+        }
+
+        .hidden { display: none !important; }
+
+        /* Dark Mode overrides applied via JS dynamically */
+        body.is-deep #app-container { color: #fdfbf7; }
+        body.is-deep .paper-btn { background: #333; color: #fff; }
+        body.is-deep .paper-panel { background: #222; color: #fff; border-color: #fff; box-shadow: 6px 6px 0px rgba(255,255,255,0.1); }
+
+        /* --- Stage 1: Big Rod Button --- */
+        #btn-cast {
+            background: transparent;
+            border: none;
+            outline: none;
+            cursor: pointer;
+            transition: transform 0.2s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+            color: currentColor;
+            -webkit-tap-highlight-color: transparent;
+        }
+        #btn-cast:active {
+            transform: scale(0.9) rotate(5deg);
+        }
+        #btn-cast svg {
+            filter: drop-shadow(4px 4px 0px rgba(0,0,0,0.15));
+        }
+        body.is-deep #btn-cast svg {
+            filter: drop-shadow(4px 4px 0px rgba(255,255,255,0.15));
+        }
+
+        /* --- Stage 2: Reaction Game --- */
+        .reaction-target {
+            position: absolute;
+            border-radius: 50%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 1.5rem;
+            animation: popIn 0.2s ease-out;
+            cursor: pointer;
+            pointer-events: auto;
+        }
+        .target-good {
+            background: #fff; border: 2px dashed #1a1a1a; box-shadow: 3px 3px 0px #1a1a1a; color: #1a1a1a;
+        }
+        .target-bad {
+            background: #222; border: 2px solid #1a1a1a; box-shadow: 3px 3px 0px var(--red-ink); color: #fff;
+        }
+        body.is-deep .target-good { background: #444; border-color: #fff; box-shadow: 3px 3px 0px #fff; color: #fff;}
+        body.is-deep .target-bad { background: #eee; border-color: #fff; box-shadow: 3px 3px 0px var(--red-ink); color: #000; }
+
+        @keyframes popIn {
+            0% { transform: scale(0); }
+            80% { transform: scale(1.2); }
+            100% { transform: scale(1); }
+        }
+
+        /* --- Stage 3: Fishing Minigame --- */
+        #fishing-track {
+            position: relative;
+            width: 40px;
+            height: 300px;
+            border: 2px solid currentColor;
+            background: rgba(255,255,255,0.1);
+            border-radius: 20px;
+            overflow: hidden;
+        }
+        
+        #capture-area {
+            position: absolute;
+            width: 100%;
+            background: rgba(50, 168, 82, 0.4);
+            border: 2px solid var(--green-ink);
+            border-radius: 10px;
+            left: -2px; /* Compensate for border */
+            /* Removed transition for TOP to ensure physics runs buttery smooth directly via JS */
+            transition: background-color 0.2s;
+        }
+        
+        #fish-icon {
+            position: absolute;
+            width: 24px;
+            height: 24px;
+            left: 6px;
+            font-size: 20px;
+            line-height: 24px;
+            /* Handled entirely by JS Lerp */
+        }
+
+        #progress-track {
+            position: relative;
+            width: 20px;
+            height: 300px;
+            border: 2px solid currentColor;
+            background: transparent;
+        }
+        
+        #progress-fill {
+            position: absolute;
+            bottom: 0;
+            width: 100%;
+            background: var(--green-ink);
+            height: 0%;
+            transition: height 0.1s linear;
+        }
+        
+        /* This forces the body to be tall to enable native scroll for Stage 1 */
+        #scroll-dummy {
+            height: 3000px; /* Gives enough scroll room to simulate 1000m */
+            width: 100%;
+            pointer-events: none;
+        }
+    </style>
+</head>
+<body>
+    
+    <!-- Dummy element to create native scroll length -->
+    <div id="scroll-dummy"></div>
+
+    <!-- UI Overlay (Fixed on screen) -->
+    <div id="app-container">
+
+        <!-- STAGE 1: เลือกความลึก (Depth Selection) -->
+        <div id="stage1" class="w-full h-full flex flex-col items-center justify-between py-16 px-4 interactive">
+            
+            <!-- Top: Depth Display -->
+            <div class="text-center flex flex-col items-center pointer-events-none">
+                <h1 class="text-2xl font-bold tracking-tighter opacity-70 mb-2">PAPER FISHING</h1>
+                <div class="text-7xl font-bold tracking-tighter tabular-nums" id="depth-display">0m</div>
+                <p class="text-sm uppercase tracking-widest opacity-60 mt-2">Swipe or Scroll to adjust depth</p>
+            </div>
+
+            <!-- Center: Big Fishing Rod Button -->
+            <div class="flex-grow flex items-center justify-center pointer-events-none w-full">
+                <button id="btn-cast" class="interactive" title="Cast Line!">
+                    <svg width="220" height="260" viewBox="0 0 100 120" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round">
+                        <!-- Rod Body -->
+                        <path d="M10,110 C30,90 40,50 80,10" />
+                        <!-- Rod Handles -->
+                        <path d="M7,113 L15,105" stroke-width="5"/>
+                        <path d="M13,103 L20,96" stroke-width="5"/>
+                        <!-- Fishing Line -->
+                        <path d="M80,10 L80,90" stroke-width="1.5" stroke-dasharray="2 2" />
+                        <!-- Hook -->
+                        <path d="M80,90 C80,95 75,98 72,95 C70,93 70,90 70,90" stroke-width="2"/>
+                    </svg>
+                </button>
+            </div>
+
+            <!-- Bottom Text -->
+            <p class="text-xs opacity-50 text-center pointer-events-none mb-8">
+                Max Depth: 1000m<br>Tap the big rod when ready.
+            </p>
+        </div>
+
+        <!-- STAGE 2: รอปลากินเหยื่อ & Reaction Game -->
+        <div id="stage2" class="hidden w-full h-full absolute top-0 left-0 flex flex-col items-center justify-center interactive">
+            <!-- Waiting State -->
+            <div id="waiting-ui" class="text-center animate-pulse pointer-events-none">
+                <div class="text-5xl mb-4">🌊 🪝 🌊</div>
+                <h2 class="text-2xl font-bold">Waiting for a bite...</h2>
+            </div>
+
+            <!-- Reaction Game UI -->
+            <div id="reaction-ui" class="hidden w-full h-full relative overflow-hidden pointer-events-none">
+                <div class="absolute top-12 left-1/2 -translate-x-1/2 paper-panel px-6 py-2 rounded-full text-center z-10 flex gap-4 text-sm sm:text-base whitespace-nowrap">
+                    <div>Hooks: <span id="reaction-score" class="font-bold">0</span>/<span id="reaction-target">5</span></div>
+                    <div class="text-red-500">Errors: <span id="reaction-errors" class="font-bold">0</span>/<span id="reaction-max-errors">1</span></div>
+                </div>
+                <div id="reaction-area" class="w-full h-full absolute top-0 left-0"></div>
+            </div>
+        </div>
+
+        <!-- STAGE 3: เย่อปลา (Tension Game) -->
+        <div id="stage3" class="hidden w-full max-w-md p-6 flex flex-col items-center gap-8 h-full justify-center absolute top-0 left-1/2 -translate-x-1/2 z-20 interactive" style="background: inherit;">
+            <div class="text-center pointer-events-none">
+                <h2 class="text-3xl font-bold mb-2">Reel it in!</h2>
+                <p class="text-sm opacity-80">Hold <span class="font-bold underline">anywhere</span> to lift the bar.<br>Release to let it drop.</p>
+            </div>
+            
+            <div class="flex gap-12 items-end h-[300px] pointer-events-none">
+                <!-- Tension Bar -->
+                <div id="fishing-track">
+                    <div id="capture-area" style="height: 80px; top: 220px;"></div>
+                    <div id="fish-icon" style="top: 250px;">🐟</div>
+                </div>
+                
+                <!-- Progress Bar -->
+                <div id="progress-track">
+                    <div id="progress-fill"></div>
+                </div>
+            </div>
+        </div>
+
+        <!-- RESULT SCREEN -->
+        <div id="result-screen" class="hidden w-full max-w-sm p-6 absolute z-50 top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 interactive">
+            <div class="paper-panel w-full p-8 flex flex-col items-center gap-4 rounded-xl text-center">
+                <h2 id="result-title" class="text-3xl font-bold">Caught!</h2>
+                <div id="result-icon" class="text-6xl my-4">🐟</div>
+                <h3 id="result-name" class="text-xl font-bold">Paper Fish</h3>
+                <p id="result-desc" class="text-sm opacity-80 mb-4 text-gray-500 dark:text-gray-300">Depth: 10m | Size: 12cm</p>
+                
+                <button id="btn-replay" class="paper-btn w-full py-3 rounded-lg text-lg">
+                    Play Again
+                </button>
+            </div>
+        </div>
+
+    </div>
+
+    <script>
+        // --- GAME STATE VARIABLES ---
+        let currentDepth = 0; // 0 to 1000
+        const MAX_DEPTH = 1000;
+        let difficultyMultiplier = 1;
+        let currentStage = 1;
+        let gameLoopRef = null;
+
+        // DOM Elements
+        const body = document.body;
+        const elApp = document.getElementById('app-container');
+        const elStage1 = document.getElementById('stage1');
+        const elStage2 = document.getElementById('stage2');
+        const elStage3 = document.getElementById('stage3');
+        const elResult = document.getElementById('result-screen');
+        const depthDisplay = document.getElementById('depth-display');
+        
+        // Colors for background interpolation
+        const lightColor = { r: 253, g: 251, b: 247 };
+        const darkColor = { r: 15, g: 20, b: 30 };
+
+        // --- STAGE 1: Scroll to Depth Logic ---
+        
+        // Listen to native window scroll
+        window.addEventListener('scroll', () => {
+            if (currentStage !== 1) return;
+            
+            // Calculate scroll percentage
+            const maxScroll = document.documentElement.scrollHeight - window.innerHeight;
+            if (maxScroll <= 0) return;
+
+            let scrollPercent = window.scrollY / maxScroll;
+            scrollPercent = Math.max(0, Math.min(1, scrollPercent)); // clamp 0-1
+            
+            // Map to depth
+            currentDepth = Math.floor(scrollPercent * MAX_DEPTH);
+            updateDepthDisplay();
+        });
+
+        function updateDepthDisplay() {
+            depthDisplay.innerText = currentDepth + 'm';
+            
+            // Linear interpolate background color based on depth
+            const ratio = currentDepth / MAX_DEPTH;
+            const r = Math.floor(lightColor.r + (darkColor.r - lightColor.r) * ratio);
+            const g = Math.floor(lightColor.g + (darkColor.g - lightColor.g) * ratio);
+            const b = Math.floor(lightColor.b + (darkColor.b - lightColor.b) * ratio);
+            
+            body.style.backgroundColor = `rgb(${r}, ${g}, ${b})`;
+
+            // Toggle text colors if it gets too dark
+            if (ratio > 0.4) {
+                body.classList.add('is-deep');
+            } else {
+                body.classList.remove('is-deep');
+            }
+        }
+
+        // --- STAGE 1 -> STAGE 2 TRANSITION ---
+        const btnCast = document.getElementById('btn-cast');
+        
+        btnCast.addEventListener('click', () => {
+            // Lock scrolling
+            body.classList.add('no-scroll');
+            currentStage = 2;
+            
+            // Difficulty increases with depth (1x at 0m, 3x at 1000m)
+            difficultyMultiplier = 1 + (currentDepth / MAX_DEPTH) * 2.0; 
+            
+            elStage1.classList.add('hidden');
+            startStage2();
+        });
+
+        // Stage 2 Vars
+        let s2_score = 0;
+        let s2_target = 5;
+        let s2_errors = 0;
+        let s2_maxErrors = 1;
+        let spawnInterval = null;
+
+        const waitingUI = document.getElementById('waiting-ui');
+        const reactionUI = document.getElementById('reaction-ui');
+        const reactionArea = document.getElementById('reaction-area');
+        const textS2Score = document.getElementById('reaction-score');
+        const textS2Target = document.getElementById('reaction-target');
+        const textS2Errors = document.getElementById('reaction-errors');
+        const textS2MaxErrors = document.getElementById('reaction-max-errors');
+
+        function startStage2() {
+            elStage2.classList.remove('hidden');
+            waitingUI.classList.remove('hidden');
+            reactionUI.classList.add('hidden');
+            reactionArea.innerHTML = '';
+
+            s2_score = 0;
+            s2_errors = 0;
+            s2_target = Math.floor(3 + (2 * difficultyMultiplier)); 
+            s2_maxErrors = 1; // Instant fail on trash
+            
+            textS2Score.innerText = s2_score;
+            textS2Target.innerText = s2_target;
+            textS2Errors.innerText = s2_errors;
+            textS2MaxErrors.innerText = s2_maxErrors;
+
+            setTimeout(() => {
+                waitingUI.classList.add('hidden');
+                reactionUI.classList.remove('hidden');
+                
+                const spawnRate = 1200 / Math.sqrt(difficultyMultiplier); 
+                spawnInterval = setInterval(spawnButton, spawnRate);
+                spawnButton(); 
+            }, 1000 + Math.random() * 2000);
+        }
+
+        function spawnButton() {
+            const btn = document.createElement('div');
+            btn.classList.add('reaction-target');
+            
+            const trashChance = 0.10 + (currentDepth / MAX_DEPTH) * 0.40; 
+            const isTrash = Math.random() < trashChance;
+
+            // Size scales slightly down with difficulty
+            const size = Math.max(50, 90 - (difficultyMultiplier * 10)); 
+            btn.style.width = size + 'px';
+            btn.style.height = size + 'px';
+
+            if (isTrash) {
+                btn.classList.add('target-bad');
+                btn.innerText = '☠️';
+                btn.onclick = () => handleS2Click(false, btn);
+            } else {
+                btn.classList.add('target-good');
+                btn.innerText = '🪝';
+                btn.onclick = () => handleS2Click(true, btn);
+            }
+
+            const maxX = window.innerWidth - size - 20;
+            const maxY = window.innerHeight - size - 120;
+            const x = Math.max(20, Math.random() * maxX);
+            const y = Math.max(100, Math.random() * maxY);
+
+            btn.style.left = x + 'px';
+            btn.style.top = y + 'px';
+
+            reactionArea.appendChild(btn);
+
+            const lifeTime = 1800 / Math.sqrt(difficultyMultiplier);
+            setTimeout(() => {
+                if (btn.parentNode) {
+                    btn.remove();
+                }
+            }, lifeTime);
+        }
+
+        function handleS2Click(isGood, btnElement) {
+            btnElement.remove(); 
+
+            if (isGood) {
+                s2_score++;
+                textS2Score.innerText = s2_score;
+                if (s2_score >= s2_target) {
+                    endStage2(true);
+                }
+            } else {
+                s2_errors++;
+                textS2Errors.innerText = s2_errors;
+                if (s2_errors >= s2_maxErrors) {
+                    endStage2(false);
+                }
+            }
+        }
+
+        function endStage2(success) {
+            clearInterval(spawnInterval);
+            elStage2.classList.add('hidden');
+            reactionArea.innerHTML = '';
+
+            if (success) {
+                startStage3();
+            } else {
+                showResult(false, "Line Snapped on Trash!");
+            }
+        }
+
+        // Stage 3 Vars
+        const elCaptureArea = document.getElementById('capture-area');
+        const elFishIcon = document.getElementById('fish-icon');
+        const elProgressFill = document.getElementById('progress-fill');
+
+        let s3_isPressing = false;
+        
+        // Physics for User Bar
+        let s3_barY = 220; 
+        let s3_barVelocity = 0;
+        let s3_barHeight = 80;
+        const TRACK_HEIGHT = 300;
+        
+        const GRAVITY = 0.4;
+        const LIFT_ACCEL = 0.8;
+        const FRICTION = 0.85; // Low friction for smooth glide (0.8 - 0.9 is great)
+
+        // Physics for Fish AI
+        let s3_fishY = 250;
+        let s3_fishTargetY = 250;
+        let s3_fishTimer = 0;
+        let s3_fishRestTimer = 0;
+        
+        // Progress
+        let s3_progress = 20; 
+
+        // Input listeners applied to the whole screen for Stage 3
+        const handlePress = (e) => {
+            if(currentStage !== 3) return;
+            // Don't prevent default on buttons so replay works later
+            if(e.target.tagName !== 'BUTTON') e.preventDefault(); 
+            s3_isPressing = true;
+        };
+        const handleRelease = (e) => {
+            if(currentStage !== 3) return;
+            s3_isPressing = false;
+        };
+        
+        document.addEventListener('mousedown', handlePress);
+        document.addEventListener('mouseup', handleRelease);
+        document.addEventListener('touchstart', handlePress, {passive: false});
+        document.addEventListener('touchend', handleRelease);
+
+        function startStage3() {
+            currentStage = 3;
+            elStage3.classList.remove('hidden');
+            
+            // Setup difficulty
+            s3_barHeight = Math.max(35, 90 - (difficultyMultiplier * 15)); 
+            elCaptureArea.style.height = s3_barHeight + 'px';
+            
+            s3_barY = TRACK_HEIGHT - s3_barHeight;
+            s3_barVelocity = 0;
+            
+            s3_fishY = TRACK_HEIGHT - 24;
+            s3_fishTargetY = s3_fishY;
+            s3_fishTimer = 0;
+            s3_fishRestTimer = 0;
+            
+            s3_progress = 25;
+            s3_isPressing = false;
+
+            gameLoopRef = requestAnimationFrame(stage3Loop);
+        }
+
+        function stage3Loop() {
+            // 1. SMOOTH BAR PHYSICS (User Control)
+            if (s3_isPressing) {
+                s3_barVelocity -= LIFT_ACCEL; // Apply upward force
+            } else {
+                s3_barVelocity += GRAVITY;    // Apply downward gravity
+            }
+            s3_barVelocity *= FRICTION;       // Apply drag/friction for smoothness
+            s3_barY += s3_barVelocity;
+
+            // Floor & Ceiling Bouncing/Clamping
+            if (s3_barY < 0) { 
+                s3_barY = 0; 
+                s3_barVelocity *= -0.3; // Slight bounce on top
+            }
+            if (s3_barY > TRACK_HEIGHT - s3_barHeight) { 
+                s3_barY = TRACK_HEIGHT - s3_barHeight; 
+                s3_barVelocity = 0; // Solid thud on bottom
+            }
+            elCaptureArea.style.top = s3_barY + 'px';
+
+            // 2. SMOOTH FISH AI (Lerp)
+            if (s3_fishRestTimer > 0) {
+                s3_fishRestTimer--;
+            } else {
+                s3_fishTimer++;
+                // Pick a new target occasionally based on difficulty
+                const changeRate = Math.max(20, 80 - (difficultyMultiplier * 10));
+                if (s3_fishTimer > changeRate) {
+                    s3_fishTimer = 0;
+                    if (Math.random() > 0.3) {
+                        s3_fishTargetY = Math.random() * (TRACK_HEIGHT - 24);
+                    } else {
+                        // Pause movement briefly to mimic real fish
+                        s3_fishRestTimer = Math.random() * 40 + 20; 
+                    }
+                }
+            }
+            
+            // Linear Interpolation (Lerp) for buttery smooth fish gliding
+            const lerpSpeed = 0.02 + (difficultyMultiplier * 0.01);
+            s3_fishY += (s3_fishTargetY - s3_fishY) * lerpSpeed;
+            elFishIcon.style.top = s3_fishY + 'px';
+
+            // 3. CAPTURE LOGIC
+            const fishCenter = s3_fishY + 12;
+            const inZone = fishCenter > s3_barY && fishCenter < (s3_barY + s3_barHeight);
+
+            if (inZone) {
+                s3_progress += 0.25; // Gain progress
+                elCaptureArea.style.backgroundColor = 'rgba(50, 168, 82, 0.6)'; // Green
+            } else {
+                s3_progress -= 0.15; // Lose progress
+                elCaptureArea.style.backgroundColor = 'rgba(230, 57, 70, 0.4)'; // Red
+            }
+
+            s3_progress = Math.max(0, Math.min(100, s3_progress));
+            elProgressFill.style.height = s3_progress + '%';
+
+            // 4. WIN / LOSE CONDITIONS
+            if (s3_progress >= 100) {
+                endStage3(true);
+                return;
+            } else if (s3_progress <= 0) {
+                endStage3(false);
+                return; 
+            }
+
+            gameLoopRef = requestAnimationFrame(stage3Loop);
+        }
+
+        function endStage3(success) {
+            cancelAnimationFrame(gameLoopRef);
+            elStage3.classList.add('hidden');
+            s3_isPressing = false;
+            
+            if (success) {
+                showResult(true);
+            } else {
+                showResult(false, "The fish escaped!");
+            }
+        }
+
+        const resultTitle = document.getElementById('result-title');
+        const resultIcon = document.getElementById('result-icon');
+        const resultName = document.getElementById('result-name');
+        const resultDesc = document.getElementById('result-desc');
+        const btnReplay = document.getElementById('btn-replay');
+
+        const fishDatabase = [
+            { name: "Paper Minnow", icon: "🐟", minDepth: 0, rarity: "Common" },
+            { name: "Cardboard Carp", icon: "🐡", minDepth: 100, rarity: "Common" },
+            { name: "Origami Bass", icon: "🐠", minDepth: 250, rarity: "Uncommon" },
+            { name: "Sketchbook Shark", icon: "🦈", minDepth: 450, rarity: "Epic" },
+            { name: "Ink-Stained Angler", icon: "🦑", minDepth: 700, rarity: "Legendary" },
+            { name: "Abyssal Leviathan", icon: "🐳", minDepth: 900, rarity: "Mythic" }
+        ];
+
+        function showResult(success, failMsg = "") {
+            currentStage = 4; // Result stage
+            elResult.classList.remove('hidden');
+            
+            if (!success) {
+                resultTitle.innerText = "Failed";
+                resultTitle.classList.add('text-red-500');
+                resultIcon.innerText = "❌";
+                resultName.innerText = failMsg;
+                resultDesc.innerText = "Better luck next time.";
+            } else {
+                resultTitle.innerText = "Caught!";
+                resultTitle.classList.remove('text-red-500');
+                
+                const availableFish = fishDatabase.filter(f => currentDepth >= f.minDepth);
+                let caughtFish = availableFish[availableFish.length - 1]; 
+                
+                if (Math.random() > 0.5 && availableFish.length > 1) {
+                     caughtFish = availableFish[Math.floor(Math.random() * (availableFish.length - 1))];
+                }
+
+                const size = (Math.random() * (currentDepth / 10 + 10) + 5).toFixed(1);
+
+                resultIcon.innerText = caughtFish.icon;
+                resultName.innerText = caughtFish.name;
+                resultDesc.innerText = `Rarity: ${caughtFish.rarity}\nDepth: ${currentDepth}m | Size: ${size}cm`;
+            }
+        }
+
+        btnReplay.addEventListener('click', () => {
+            elResult.classList.add('hidden');
+            elStage1.classList.remove('hidden');
+            
+            // Unlock scrolling and restore to Stage 1
+            body.classList.remove('no-scroll');
+            currentStage = 1;
+            
+            // Explicitly force background color check
+            updateDepthDisplay();
+        });
+
+        // Initialize display on load
+        window.scrollTo(0, 0); // Start at 0m
+        updateDepthDisplay();
+    </script>
+</body>
+</html>
